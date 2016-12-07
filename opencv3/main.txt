@@ -1,0 +1,1716 @@
+//运行环境vs2013+opencv3.0
+//上海大学  刘冬军   dongjliu@126.com
+//输入：鱼眼摄像头  输出：俯视鸟瞰全景图像
+//2016.11.14
+#include "stdafx.h"
+#include  "opencv2/highgui.hpp"
+#include  "opencv2/imgproc.hpp"
+#include "opencv2/calib3d/calib3d.hpp"
+#include <opencv2/opencv.hpp>
+#include  <iostream>
+#include  <fstream>
+#include  <stdio.h>
+#include "math.h"
+#include <ctime>
+
+#define  PI 3.1415927
+using  namespace  cv;
+using  namespace  std;
+
+typedef unsigned long DWORD;
+typedef   unsigned   char   *LPBYTE;  
+struct MaxValue
+{
+	int value;
+	int Rho;
+	int Theta;
+};
+struct SIZE
+{
+	int cx;
+	int cy;
+};
+
+int  main()
+{
+	/*****************************************************************************/
+	void front_remap(Mat &inimage,Mat &outimage);
+	void left_remap(Mat &inimage,Mat &outimage);
+	void back_remap(Mat &inimage,Mat &outimage);
+	void right_remap(Mat &inimage,Mat &outimage);
+	void left_rotate(Mat &inimage,Mat &outimage);
+	void right_rotate(Mat &inimage,Mat &outimage);
+	void back_rotate(Mat &inimage,Mat &outimage);
+	void front_perspective(Mat &inimage, Mat &outimage);
+	void left_perspective(Mat &inimage, Mat &outimage);
+	void right_perspective(Mat &inimage, Mat &outimage);
+	void back_perspective(Mat &inimage,Mat &outimage);
+	void shift(Mat &inimage,Mat &outimage,int dx,int dy);
+	//-----------------------------------wagnqi--------------------------//
+	void hough(Mat &image, Mat &outimage, int &row, bool &frame_continuous, int &frame_num, float &slope1, float &intercept1, float &slope2, float &intercept2, float *tabSin, float *tabCos);
+	void adaptiveB(Mat &inImage, int row, bool frame_continuous, float slope1, float intercept1, float slope2, float intercept2);
+	void Corrosion(Mat &image, int row);
+	void EdgeDetction(Mat &image, Mat &EdgeImage, int row, bool frame_continuous, float slope1, float intercept1, float slope2, float intercept2);
+	void RGB2Gray1(Mat &image, Mat &GrayImage,int row);
+	//----------------------------------------------------------------------//
+	Mat front,left,back,right;			//原图
+	Mat front_t,left_t,back_t,right_t;	//校正图
+	Mat left_r,back_r,right_r;		    //旋转变换后图
+	Mat front_p,left_p,back_p,right_p;   //透视变换图 
+	Mat model,output;
+	VideoCapture capture0, capture1, capture2,capture3;
+	clock_t start, stop;
+	double time;
+
+
+	/*/*************************************************读取摄像头*************************************************/
+   	capture0.open(0);	
+	capture1.open(1);
+	capture2.open(2);	
+	capture3.open(3);
+	unsigned char cam0_en=0;
+	unsigned char cam1_en=0;
+	unsigned char cam2_en=0;
+	unsigned char cam3_en=0;
+    // Init camera
+    if (!capture0.isOpened())
+    {
+        cout << "capture device 0 failed to open!" << endl;
+    }
+	else
+		cam0_en=1;
+
+	if (!capture1.isOpened())
+    {
+        cout << "capture device 1 failed to open!" << endl;
+    }
+  	else
+		cam1_en=1;
+
+	if (!capture2.isOpened())
+    {
+        cout << "capture device 2 failed to open!" << endl;
+	}
+	else
+		cam2_en=1;
+
+	if (!capture3.isOpened())
+    {
+        cout << "capture device 3 failed to open!" << endl;
+    }
+	else
+		cam3_en=1;
+
+	unsigned x=0;
+	double w =640, h =360;
+    capture2.set(CAP_PROP_FRAME_WIDTH,w);
+    capture2.set(CAP_PROP_FRAME_HEIGHT,h);
+    capture3.set(CAP_PROP_FRAME_WIDTH,w);
+    capture3.set(CAP_PROP_FRAME_HEIGHT,h);
+    capture1.set(CAP_PROP_FRAME_WIDTH,w);
+    capture1.set(CAP_PROP_FRAME_HEIGHT,h);
+    capture0.set(CAP_PROP_FRAME_WIDTH,w);
+    capture0.set(CAP_PROP_FRAME_HEIGHT,h);
+	
+	model=imread("model.jpg");
+	//Size msize = Size(152,262);
+   // Mat right_k = Mat(msize,CV_32S);	// 右方图像放大
+   // resize(model,model_1,msize);
+	//imwrite("model.jpg",model_1);
+	//waitKey();
+    for(;;)
+	{
+		start = clock();
+		cout<<"--------------------------------------"<<endl;
+		if(cam0_en=1)
+		 {
+    		if(capture0.read(front))
+			{
+			cout<<"cam0:OK"<<endl;
+			//imshow("0",front);
+			//imwrite("0.jpg",frame0);
+		}
+		else
+			cout<<"cam0:Fail"<<endl;
+	}
+	 if(cam1_en=1)
+	 {
+    		if(capture1.read(left))
+		{
+			cout<<"cam1:OK"<<endl;
+			//imshow("1", left);
+			//imwrite("1.jpg",left);
+		}
+		else
+			cout<<"cam1:Fail"<<endl;
+	 }
+
+	if(cam2_en=1)
+	 {
+  		if(capture2.read(back))
+		{
+			cout<<"cam2:OK"<<endl;
+			//imshow("2", back);
+			//imwrite("2.jpg",back);
+		}
+		else
+			cout<<"cam2:Fail"<<endl;
+	 }
+
+	if(cam3_en=1)
+	{
+  		if(capture3.read(right))
+		{
+			cout<<"cam3:OK"<<endl;
+			//imshow("3", right);
+			//imwrite("3.jpg",right);
+		}
+		else
+			cout<<"cam3:Fail"<<endl;
+	 }
+		/*front=imread("cap0.jpg");
+	//left=imread("cap1.jpg");
+	//back=imread("cap2.jpg");
+	//right=imread("cap3.jpg");*/
+	front_remap(front,front_t);	//前方图像校正
+	//imshow("front_t",front_t);
+	//imwrite("front_t.jpg",front_t);
+	//waitKey();
+	left_remap(left,left_t);    //左方图像校正
+	//imshow("left_t",left_t);
+	//imwrite("left_t.jpg",left_t);
+	//waitKey()；
+	back_remap(back,back_t);	//后方图像校正
+	//imshow("back_t",back_t);
+	//imwrite("back_t.jpg",back_t);
+	//waitKey();
+	right_remap(right,right_t);	//右方图像校正
+	//imshow("right_t",right_t);
+	//imwrite("right_t.jpg",right_t);
+	//waitKey();
+	left_rotate(left_t,left_r);	//左方旋转变换
+	//imwrite("left_r.jpg",left_r);
+	//imshow("lr",left_r);
+	//waitKey();
+	right_rotate(right_t,right_r); //右方图像旋转
+	//imwrite("right_r.jpg",right_r);
+	//imshow("rr",right_r);
+	//waitKey();
+	back_rotate(back_t,back_r);      //后方图像旋转
+	//imshow("back_r",back_r);
+	//imwrite("back_r.jpg",back_r);
+	//waitKey();
+    front_perspective(front_t,front_p);	// 前方透视变换
+	//imshow("front_p",front_p);
+	//imwrite("front_p.jpg",front_p);
+	//waitKey();
+	left_perspective(left_r,left_p);	//左方透视变换
+	//imshow("left_p",left_p);
+	//imwrite("left_p.jpg",left_p);
+	//waitKey();
+	back_perspective(back_r,back_p);	 //后方图像透视变换
+	//imshow("back_p",back_p);
+	//imwrite("back_p.jpg",back_p);
+	//waitKey();
+	right_perspective(right_r,right_p);		//右侧透视变换
+	//imshow("right_p",right_p);
+	//imwrite("right_p.jpg",right_p);
+	//waitKey();
+	Size dsize = Size(640,640*1.06);
+    Mat right_k = Mat(dsize,CV_32S);	// 右方图像放大
+    resize(right_p,right_k,dsize);
+	//imwrite("right_k.jpg",right_k);
+	Mat src0, src1, src2, src3, src4,src5,src6, dst; 
+	//-----------------------------wangqi------------------------------//
+	float *tabSin = NULL;
+	float *tabCos = NULL;
+	float theta = (float)PI/180;
+	int numangle = 180;
+	int n;
+	float ang;
+	tabSin = new float[sizeof(tabSin[0])*numangle];//tabSin[]数组数据个数4*180
+	tabCos = new float[sizeof(tabCos[0])*numangle];
+	for (ang = 0 ,n = 0; n < numangle; ang += theta, n++)
+	{
+		tabSin[n] = (float)sin(ang);
+		tabCos[n] = (float)cos(ang);
+	}//任意角度sin和cos表
+	
+	Mat GrayImage,GrayImage1,EdgeImage;
+	float slope1 = 0.0;
+	float intercept1 = 0.0;
+	float slope2 = 0.0;
+	float intercept2 = 0.0;
+	int row = 0;//100
+	bool frame_continuous = 0;
+	int frame_num=0;
+	//---------------------------------------------------------------//
+	/*Mat right_ROI;
+	Rect rect(40,40,1280,1280);  
+	right_k(rect).copyTo(right_ROI);
+	 
+    src1 = imread("front_p.jpg");  
+    src0 = imread("left_p.jpg"); 
+	src3 = imread("right_p.jpg");
+	src5 = imread("back_p.jpg");*/
+	src1=front_p.clone();
+	src0 = left_p.clone();
+	src3 = right_k.clone();
+	src5 = back_p.clone();
+	shift(src0,src2,7,12);       //1=front 2=left  4=right  6=back
+	shift(src3,src4,-2,-26);
+	shift(src5,src6,14,-10);
+	double alpha=0;
+	double beta=1;
+	double gama=0;
+    dst.create(640,640 ,src1.type());  
+	for(int i=0;i<dst.rows;i++)
+	{
+		uchar* dst_ptr  = dst.ptr<uchar>(i);
+		for(int j=0;j<dst.cols*3;j++)
+		{
+			dst_ptr[j]=0;
+		}
+	}
+    const int nChannels = src1.channels();  
+   //前方与左侧//
+	for (int i=0; i<350; i++)    //place front first
+    {  
+        const uchar* src1_ptr = src1.ptr<uchar>(i);   
+        uchar* dst_ptr  = dst.ptr<uchar>(i);  
+        for (int j=(400*nChannels);j<src1.cols*nChannels; j++)  
+        { 
+				dst_ptr[j] = src1_ptr[j];
+        }  
+    }  
+	for (int i=350; i<src2.rows; i++)    //place left
+    {  
+        const uchar* src2_ptr = src2.ptr<uchar>(i);   
+        uchar* dst_ptr  = dst.ptr<uchar>(i);  
+        for (int j=0; j<src2.cols*nChannels; j++)  
+        { 
+				dst_ptr[j] = src2_ptr[j];
+        }  
+    }
+	//imshow("kk",dst);
+	//waitKey();
+    for (int i=0; i<400; i++)  
+    {  
+        const uchar* src1_ptr = src1.ptr<uchar>(i);  
+        const uchar* src2_ptr = src2.ptr<uchar>(i);  
+        uchar* dst_ptr  = dst.ptr<uchar>(i);  
+        for (int j=0; j<500; j++)  
+        { 
+				int courentcol=j*nChannels;
+				if (src1_ptr[courentcol]==0 || src1_ptr[courentcol+1]==0 || src1_ptr[courentcol+2]==0)
+				{
+					dst_ptr[courentcol]=src2_ptr[courentcol];
+					dst_ptr[courentcol+1]=src2_ptr[courentcol+1];
+					dst_ptr[courentcol+2]=src2_ptr[courentcol+2];
+				}
+				else if (src2_ptr[courentcol]==0 || src2_ptr[courentcol+1]==0 || src2_ptr[courentcol+2]==0)
+				{
+					dst_ptr[courentcol]=src1_ptr[courentcol];
+					dst_ptr[courentcol+1]=src1_ptr[courentcol+1];
+					dst_ptr[courentcol+2]=src1_ptr[courentcol+2];
+				}
+				else
+				{
+					dst_ptr[courentcol] = src1_ptr[courentcol]*alpha + src2_ptr[courentcol]*beta + gama;
+					dst_ptr[courentcol+1] = src1_ptr[courentcol+1]*alpha + src2_ptr[courentcol+1]*beta + gama;
+					dst_ptr[courentcol+2] = src1_ptr[courentcol+2]*alpha + src2_ptr[courentcol+2]*beta + gama;
+				}
+        }  
+    }
+	//imshow("kk",dst);
+	//waitKey();
+
+    //左侧和后侧
+    for (int i=440;i<640; i++)  
+    {  
+        const uchar* src2_ptr = src2.ptr<uchar>(i);  
+        const uchar* src6_ptr = src6.ptr<uchar>(i);  
+        uchar* dst_ptr  = dst.ptr<uchar>(i);  
+        for (int j=0; j<220*nChannels; j++)  
+        { 
+				int courentcol=j*nChannels;
+				if (src2_ptr[courentcol]==0 || src2_ptr[courentcol+1]==0 || src2_ptr[courentcol+2]==0)
+				{
+					dst_ptr[courentcol]=src6_ptr[courentcol];
+					dst_ptr[courentcol+1]=src6_ptr[courentcol+1];
+					dst_ptr[courentcol+2]=src6_ptr[courentcol+2];
+				}
+				else if (src6_ptr[courentcol]==0 || src6_ptr[courentcol+1]==0 || src6_ptr[courentcol+2]==0)
+				{
+					dst_ptr[courentcol]=src2_ptr[courentcol];
+					dst_ptr[courentcol+1]=src2_ptr[courentcol+1];
+					dst_ptr[courentcol+2]=src2_ptr[courentcol+2];
+				}
+				else
+				{
+					dst_ptr[courentcol] = src6_ptr[courentcol]*alpha + src2_ptr[courentcol]*beta + gama;
+					dst_ptr[courentcol+1] = src6_ptr[courentcol+1]*alpha + src2_ptr[courentcol+1]*beta + gama;
+					dst_ptr[courentcol+2] = src6_ptr[courentcol+2]*alpha + src2_ptr[courentcol+2]*beta + gama;
+				} 
+        }  
+    }
+	for (int i=440;i<src5.rows;i++)  
+    {  
+        const uchar* src6_ptr = src6.ptr<uchar>(i);   
+        uchar* dst_ptr  = dst.ptr<uchar>(i);  
+        for (int j=220*nChannels; j<src5.cols*nChannels; j++)  
+        { 
+				dst_ptr[j] = src6_ptr[j];
+        }  
+    }
+	//imshow("kk",dst);
+	//waitKey();
+
+	///////前方和右侧
+	for (int i=165; i<src4.rows; i++)  
+    {  
+        const uchar* src4_ptr = src4.ptr<uchar>(i);   
+        uchar* dst_ptr  = dst.ptr<uchar>(i);  
+        for (int j=410*nChannels; j<src4.cols*nChannels; j++)  
+        { 
+				dst_ptr[j] = src4_ptr[j];
+        }  
+    }
+	 for (int i=0; i<180; i++)  
+    {  
+        const uchar* src1_ptr = src1.ptr<uchar>(i);  
+        const uchar* src4_ptr = src4.ptr<uchar>(i);  
+        uchar* dst_ptr  = dst.ptr<uchar>(i);  
+        for (int j=410; j<src4.cols; j++)  
+        { 
+				int courentcol=j*nChannels;
+				if (src1_ptr[courentcol]==0 || src1_ptr[courentcol+1]==0 || src1_ptr[courentcol+2]==0)
+				{
+					dst_ptr[courentcol]=src4_ptr[courentcol];
+					dst_ptr[courentcol+1]=src4_ptr[courentcol+1];
+					dst_ptr[courentcol+2]=src4_ptr[courentcol+2];
+				}
+				else if (src4_ptr[courentcol]==0 || src4_ptr[courentcol+1]==0 || src4_ptr[courentcol+2]==0)
+				{
+					dst_ptr[courentcol]=src1_ptr[courentcol];
+					dst_ptr[courentcol+1]=src1_ptr[courentcol+1];
+					dst_ptr[courentcol+2]=src1_ptr[courentcol+2];
+				}
+				else
+				{
+					dst_ptr[courentcol] = src1_ptr[courentcol]*alpha + src4_ptr[courentcol]*beta + gama;
+					dst_ptr[courentcol+1] = src1_ptr[courentcol+1]*alpha + src4_ptr[courentcol+1]*beta + gama;
+					dst_ptr[courentcol+2] = src1_ptr[courentcol+2]*alpha + src4_ptr[courentcol+2]*beta + gama;
+				}
+        }  
+    }
+	for (int i=440;i<src5.rows; i++)  
+    {  
+        const uchar* src4_ptr = src4.ptr<uchar>(i);  
+        const uchar* src6_ptr = src6.ptr<uchar>(i);  
+        uchar* dst_ptr  = dst.ptr<uchar>(i);  
+        for (int j=300; j<src4.cols; j++)  
+        { 
+				int courentcol=j*nChannels;
+				if (src4_ptr[courentcol]==0 || src4_ptr[courentcol+1]==0 || src4_ptr[courentcol+2]==0)
+				{
+					dst_ptr[courentcol]=src6_ptr[courentcol];
+					dst_ptr[courentcol+1]=src6_ptr[courentcol+1];
+					dst_ptr[courentcol+2]=src6_ptr[courentcol+2];
+				}
+				else if (src6_ptr[courentcol]==0 || src6_ptr[courentcol+1]==0 || src6_ptr[courentcol+2]==0)
+				{
+					dst_ptr[courentcol]=src4_ptr[courentcol];
+					dst_ptr[courentcol+1]=src4_ptr[courentcol+1];
+					dst_ptr[courentcol+2]=src4_ptr[courentcol+2];
+				}
+				else
+				{
+					dst_ptr[courentcol] = src4_ptr[courentcol]*alpha + src6_ptr[courentcol]*beta + gama;
+					dst_ptr[courentcol+1] = src4_ptr[courentcol+1]*alpha + src6_ptr[courentcol+1]*beta + gama;
+					dst_ptr[courentcol+2] = src4_ptr[courentcol+2]*alpha + src6_ptr[courentcol+2]*beta + gama;
+				} 
+        }  
+
+    }
+
+	for (int i=173; i<440; i++)  
+    {  
+        uchar* model_1 = model.ptr<uchar>(i-173);   
+        uchar* dst_ptr  = dst.ptr<uchar>(i);  
+        for (int j=265*nChannels; j<424*nChannels; j++)  
+        { 
+				dst_ptr[j] = model_1[j-265*nChannels];
+        }  
+    }
+	//-----------------------------------------wangqi------------------//
+	dst(Rect(10, 10, 630, 590)).copyTo(output);
+	imwrite("output.jpg",output);
+	waitKey();
+	//cvtColor(output, GrayImage, CV_BGR2GRAY);
+    RGB2Gray1(output,GrayImage,row);
+	imshow("2",GrayImage);
+	
+	GaussianBlur( GrayImage,  GrayImage1, Size( 3, 3 ), 0, 0 ); 
+	EdgeDetction(GrayImage1, EdgeImage, row, frame_continuous, slope1, intercept1, slope2, intercept2);
+	adaptiveB(EdgeImage, row, frame_continuous, slope1, intercept1, slope2, intercept2);
+	Corrosion(EdgeImage, row);
+	hough(EdgeImage, output, row, frame_continuous, frame_num, slope1, intercept1, slope2, intercept2, tabSin, tabCos);
+	//---------------------------------------------------------------//
+	
+	stop = clock(); 
+	time=(double)(stop - start) / CLOCKS_PER_SEC;
+	cout<<"时间"<<time<<endl;
+	imshow("output",output);
+	
+	 /*stop = clock(); 
+	 time=(double)(stop - start) / CLOCKS_PER_SEC;
+	 cout<<"时间"<<time<<endl;*/
+	//imwrite("dst.jpg",dst);
+    waitKey(2);      
+   }
+
+}
+
+
+//**********************************前左后右四个图像校正**********************************//
+//****************************************************************************************//
+void front_remap(Mat &inimage,Mat &outimage)
+{
+	Mat newCameraMatrix = Mat(3,3,CV_32FC1,Scalar::all(0));
+	Size image_size =inimage.size();
+	Mat R = Mat::eye(3,3,CV_32F);
+	Mat mapx = Mat(image_size,CV_32FC1);
+    Mat mapy = Mat(image_size,CV_32FC1);
+	Matx33d intrinsic_matrix(228.7574365416764, 0, 279.8579998175736,0, 232.6699649630497, 232.7320582296409,0, 0, 1);
+	Vec4d distortion_coeffs(-0.0874154, 0.0781037, -0.158698, 0.0927466);
+	fisheye::initUndistortRectifyMap(intrinsic_matrix,distortion_coeffs,R,intrinsic_matrix,image_size,CV_32FC1,mapx,mapy);
+	outimage=inimage.clone();
+	remap(inimage,outimage,mapx, mapy, INTER_LINEAR);
+}
+void left_remap(Mat &inimage,Mat &outimage)
+{
+	Mat newCameraMatrix = Mat(3,3,CV_32FC1,Scalar::all(0));
+	Size image_size =inimage.size();
+	Mat R = Mat::eye(3,3,CV_32F);
+	Mat mapx = Mat(image_size,CV_32FC1);
+    Mat mapy = Mat(image_size,CV_32FC1);
+	Matx33d intrinsic_matrix(231.9951620402049, 0, 300.836692561697,0, 234.3822822406889, 275.8653467251771,0, 0, 1);
+	Vec4d distortion_coeffs(-0.0797442, 0.0959548, -0.161391, 0.0746264);
+	fisheye::initUndistortRectifyMap(intrinsic_matrix,distortion_coeffs,R,intrinsic_matrix,image_size,CV_32FC1,mapx,mapy);
+	outimage=inimage.clone();
+	remap(inimage,outimage,mapx, mapy, INTER_LINEAR);
+}
+void back_remap(Mat &inimage,Mat &outimage)
+{
+	Mat newCameraMatrix = Mat(3,3,CV_32FC1,Scalar::all(0));
+	Size image_size =inimage.size();
+	Mat R = Mat::eye(3,3,CV_32F);
+	Mat mapx = Mat(image_size,CV_32FC1);
+    Mat mapy = Mat(image_size,CV_32FC1);
+	Matx33d intrinsic_matrix(230.0115266369131, 0, 321.9881951948702,0, 232.5766417127015, 214.9958014488319,0, 0, 1);
+	Vec4d distortion_coeffs(-0.106902, 0.112763, -0.127697, 0.0518379);
+	fisheye::initUndistortRectifyMap(intrinsic_matrix,distortion_coeffs,R,intrinsic_matrix,image_size,CV_32FC1,mapx,mapy);
+	outimage=inimage.clone();
+	remap(inimage,outimage,mapx, mapy, INTER_LINEAR);
+}
+void right_remap(Mat &inimage,Mat &outimage)
+{
+	Mat newCameraMatrix = Mat(3,3,CV_32FC1,Scalar::all(0));
+	Size image_size =inimage.size();
+	Mat R = Mat::eye(3,3,CV_32F);
+	Mat mapx = Mat(image_size,CV_32FC1);
+    Mat mapy = Mat(image_size,CV_32FC1);
+	Matx33d intrinsic_matrix(224.1073060628731, 0, 315.8351828442915,0, 227.9510986943261, 233.4523127884099,0, 0, 1);
+	Vec4d distortion_coeffs(-0.040087, -0.0436213, 0.0303138, -0.00559813);
+	fisheye::initUndistortRectifyMap(intrinsic_matrix,distortion_coeffs,R,intrinsic_matrix,image_size,CV_32FC1,mapx,mapy);
+	outimage=inimage.clone();
+	remap(inimage,outimage,mapx, mapy, INTER_LINEAR);
+}
+
+
+//**************************************************左侧右侧后侧图像旋转变换***************************************//
+//****************************************************************************************************************//
+void left_rotate(Mat &inimage,Mat &outimage)
+{
+	Mat temp;
+	transpose(inimage,temp);
+	flip(temp,outimage,0);
+}
+void right_rotate(Mat &inimage,Mat &outimage)
+{
+	Mat temp;
+	transpose(inimage,temp);
+	flip(temp,outimage,1);
+}
+void back_rotate(Mat &inimage,Mat &outimage)
+{
+	Mat temp;
+	Mat turn_left;
+	transpose(inimage,temp);
+	flip(temp,turn_left,0);
+	transpose(turn_left,temp);
+	flip(temp,outimage,0);
+}
+
+
+//***************************************************前左后右透视变换成俯视图**********************************************//
+//*************************************************************************************************************************//
+void front_perspective(Mat &inimage, Mat &outimage)
+{
+	 Mat h( 3, 3, CV_32FC1 );
+     vector<Point2f> pt1(4);
+     vector<Point2f> pt2(4);
+	 Mat warp_dst =Mat::zeros( inimage.rows, inimage.cols, inimage.type());
+	 pt1[0] = Point2f(295,22) ;    
+     pt1[1] = Point2f(392,22) ; 
+     pt1[2] = Point2f(392,119) ; 
+     pt1[3] = Point2f(295,119) ;  
+
+     pt2[0] = Point2f(235,236); 
+     pt2[1] = Point2f(340,236);                 
+     pt2[2] = Point2f(370,345);                    
+     pt2[3] = Point2f(210,346);
+	 h=getPerspectiveTransform(pt2,pt1);
+     warpPerspective(inimage,outimage,h,warp_dst.size());
+}
+void left_perspective(Mat &inimage, Mat &outimage)
+{
+	 Mat h( 3, 3, CV_32FC1 );
+     vector<Point2f> pt1(4);
+     vector<Point2f> pt2(4);
+	 Mat warp_dst =Mat::zeros(640,640,inimage.type());
+	 pt1[0] = Point2f(84,330) ;    
+     pt1[1] = Point2f(84,233) ; 
+     pt1[2] = Point2f(181,233) ; 
+     pt1[3] = Point2f(181,330) ;  
+
+     pt2[0] = Point2f(239,347); //496.0167 147.4822 
+     pt2[1] = Point2f(240,248);                 
+     pt2[2] = Point2f(330,213);                    
+     pt2[3] = Point2f(328,354);
+	 h=getPerspectiveTransform(pt2,pt1);
+     warpPerspective(inimage,outimage,h,warp_dst.size());
+}
+
+void back_perspective(Mat &inimage,Mat &outimage)
+{
+	 Mat h( 3, 3, CV_32FC1 );
+     vector<Point2f> pt1(4);
+     vector<Point2f> pt2(4);
+	 Mat warp_dst =Mat::zeros(640,640,inimage.type());
+	 pt1[0] = Point2f(381,582) ;    
+     pt1[1] = Point2f(284,582) ; 
+     pt1[2] = Point2f(284,485) ; 
+     pt1[3] = Point2f(381,485) ;  
+
+     pt2[0] = Point2f(367,226); 
+     pt2[1] = Point2f(248,228);                 
+     pt2[2] = Point2f(215,100);                    
+     pt2[3] = Point2f(398,98);
+	 h=getPerspectiveTransform(pt2,pt1);
+     warpPerspective(inimage,outimage,h,warp_dst.size());
+}
+
+void right_perspective(Mat &inimage, Mat &outimage)
+{
+	 Mat h( 3, 3, CV_32FC1 );
+     vector<Point2f> pt1(4);
+     vector<Point2f> pt2(4);
+	 Mat warp_dst =Mat::zeros(640,640,inimage.type());
+	 pt1[0] = Point2f(581,272) ;    
+     pt1[1] = Point2f(581,368) ; 
+     pt1[2] = Point2f(487,368) ; 
+     pt1[3] = Point2f(487,272) ;  
+
+     pt2[0] = Point2f(256,260); //496.0167 147.4822 
+     pt2[1] = Point2f(257,364);                 
+     pt2[2] = Point2f(155,385);                    
+     pt2[3] = Point2f(157,230);
+	 h=getPerspectiveTransform(pt2,pt1);
+     warpPerspective(inimage,outimage,h,warp_dst.size());
+}
+
+
+//////***********************************************平移变换**************************************************//
+//*************************************************************************************************************//
+void shift(Mat &inimage,Mat &outimage,int dx,int dy)   //向左平移X为负，右x为正;  向下平移y为正，向上平移为负
+{
+	const int row=640;
+	const int col=640;
+	CV_Assert(inimage.depth()==CV_8U);
+	outimage.create(row,col,inimage.type());
+	Vec3b *p;
+	for (int i = 0; i <row;i++)
+    {
+		p=outimage.ptr<Vec3b>(i);
+        for (int j = 0; j < col;j++)
+        {
+            int x = j -dx;
+            int y = i -dy;
+            if (x >= 0 && y >= 0 && x < col && y < row) 
+			{
+				p[j]=inimage.ptr<Vec3b>(y)[x];
+			}
+        }
+    }
+}
+void adaptiveB(Mat &inImage, int row, bool frame_continuous, float slope1, float intercept1, float slope2, float intercept2)//自适应及二值化
+{
+	int width = inImage.cols;
+	int height = inImage.rows;
+	int minGrayLeft = 255;
+	int maxGrayLeft = 0;
+	static int threshold1Left;
+	static int threshold2Left;
+	static int minGrayRight = 255;
+	static int maxGrayRight = 0;
+	int threshold1Right;
+	int threshold2Right;
+	int minCol = 0; 
+	int maxCol = width;
+	int leftCol = width >> 1;
+	int rightCol = width >> 1;
+	//int sum=0;
+	//int n=0;
+	for (int i = row; i < height; i++)
+	{
+		uchar *data = inImage.ptr(i);
+		if (frame_continuous)
+		{
+			minCol = (int)(slope1*i+intercept1)-20;
+			maxCol = (int)(slope2*i+intercept2)+20;
+			if (minCol<0)
+			{
+				minCol = 1;
+			}
+			if (maxCol>width)
+			{
+				maxCol = width-1;
+			}
+			leftCol = minCol+80;
+			rightCol = maxCol-80;
+		}
+		
+		for (int j = minCol;j<leftCol;j++)
+		{
+			if (data[j]>maxGrayLeft)
+			{
+				maxGrayLeft = data[j];
+			}
+			if (data[j]<minGrayLeft)  
+			{
+				minGrayLeft = data[j];
+			}
+			//sum+=data[j];
+			//n++;
+		}
+		for (int j = rightCol;j < maxCol;j++)
+		{
+			if (data[j] > maxGrayRight)
+			{
+				maxGrayRight = data[j];
+			}
+			if (data[j] < minGrayRight)
+			{
+				minGrayRight = data[j];
+			}
+		}
+	}
+	threshold1Left = maxGrayLeft;
+	threshold2Left = (maxGrayLeft+minGrayLeft)>>1;
+	//cout<<"threshold2"<<threshold2<<endl;
+	while ( (threshold1Left-threshold2Left>15) || (threshold2Left-threshold1Left)>15 )
+	{
+		int zb1 = 1;
+		int nb1 = 1;
+		int zo1 = 1;
+		int no1 = 1;
+		for(int i = row;i < height;i++)
+		{
+			uchar *data = inImage.ptr(i);
+			for(int j = minCol;j < leftCol;j++)
+			{
+				if (data[j] < threshold2Left)
+				{
+					zb1 += data[j];
+					nb1++;
+				}
+				if (data[j] > threshold2Left)
+				{
+					zo1 += data[j];
+					no1++;
+				}
+
+			}
+		}
+		int zbb,zoo;
+		zbb = zb1/nb1;//灰度值小于中间灰度的平均灰度
+		zoo = zo1/no1;
+		threshold1Left=threshold2Left;
+		threshold2Left=(zbb+zoo)>>1;
+	}
+	threshold1Right=maxGrayRight;
+	threshold2Right=(maxGrayRight+minGrayRight)>>1;
+	while ((threshold1Right-threshold2Right>15)||(threshold2Right-threshold1Right)>15)
+	{
+		int zb1=0;
+		int nb1=0;
+		int zo1=0;
+		int no1=0;
+		for(int i=240;i<height;i++)
+		{
+			uchar *data = inImage.ptr(i);
+			for(int j=rightCol;j<maxCol;j++)
+			{
+				if (data[j]<threshold2Right)
+				{
+					zb1+=data[j];
+					nb1++;
+				}
+				if (data[j]>threshold2Right)
+				{
+					zo1+=data[j];
+					no1++;
+				}
+
+			}
+		}
+		int zbb,zoo;
+		zbb=zb1/nb1;
+		if(no1 == 0 || zo1 == 0)
+		{
+			zoo = 0;
+		}
+		else
+		zoo=zo1/no1;
+		threshold1Right=threshold2Right;
+		threshold2Right=(zbb+zoo)>>1;
+    }
+	for (int i=row;i<height;i++)
+	{
+		if (frame_continuous)
+		{
+			minCol=(int)(slope1*i+intercept1)-20;
+			maxCol=(int)(slope2*i+intercept2)+20;
+			if (minCol<0)
+			{
+				minCol=0;
+			}
+			if (maxCol>width)
+			{
+				maxCol=width;
+			}
+			leftCol=minCol+80;
+			rightCol=maxCol-80;
+		}
+		uchar *data=inImage.ptr(i);
+		for (int j=minCol;j<leftCol;j++)
+		{
+			data[j]=data[j]>0.9*threshold1Left?255:0;
+		}
+		for (int j=rightCol;j<maxCol;j++)
+		{
+			data[j]=data[j]>0.9*threshold1Right?255:0;
+		}
+	}
+}
+void Corrosion(Mat &image,int row)
+{
+	void Expansion(Mat &image,int row1,int col_min,int col_max);
+	int width=image.cols;
+	int height=image.rows;
+	int col_min=0;
+	int col_max=width;
+	int width1=width-1;
+	
+	for (int j=0;j<row;j++)
+	{
+		uchar* data_gray=image.ptr<uchar>(j);
+		for (int i=0;i<image.cols;i++)
+		{
+			data_gray[i]=0;
+		}
+	}
+	Expansion(image,row,col_min,col_max);
+	for (int i=row;i<height;i++)
+	{
+		uchar *data=image.ptr(i);
+		for (int j=col_min;j<width1;j++)
+		{
+			if (data[j+1]==255)
+			{
+				data[j]=0;
+			}
+		}
+	}
+}
+void Expansion(Mat &image,int row1,int col_min,int col_max)
+{
+	int width=col_max;
+	int height=image.rows;
+	int width1=width-1;
+	
+	for (int i=row1;i<height;i++)
+	{
+		uchar *data=image.ptr(i);
+		for (int j=col_min;j<width1;j++)
+		{
+			if (data[j+1]==255)
+			{
+				data[j]=255;
+				data[j-1]=255;
+			}
+		}
+	}
+}
+
+void hough(Mat &image,Mat &outimage,int &row,bool &frame_continuous,int &frame_num,float &slope1,float &intercept1,float &slope2,float &intercept2,float *tabSin,float *tabCos)
+{
+	void print_line(Mat &image,MaxValue &max_value,int row,int col_node,int col_max,float *tabSin,float *tabCos);
+	void print_line2(Mat &image,MaxValue &max_value,int row,int col_min,int col_node,float *tabSin,float *tabCos);
+	//void print_line_medium_right(Mat &image,MaxValue &max_value,int row,int col_node,int col_max,float *tabSin,float *tabCos);
+	//void print_line_medium_left(Mat &image,MaxValue &max_value,int row,int col_min,int col_node,float *tabSin,float *tabCos);
+	void drawArrowLeft(Mat &img);
+	void drawArrowRight(Mat &img);
+	unsigned width=image.cols;//图像宽
+	unsigned height=image.rows;//图像高
+	unsigned width1=width>>1;
+	unsigned width2=width>>1;
+	int col_min=0;
+	int col_max=width;
+	double length=width*width+height*height;//hough 图像宽：距离rho的量化级数
+	unsigned Rho_max=unsigned(sqrt(length));
+	unsigned Theta_max=90;//hough 图像高：角度theta的量化级数
+	unsigned *arrayHough_L;//hough空间数组
+	unsigned *arrayHough_R;
+	arrayHough_L=new unsigned[Rho_max*Theta_max]; 
+	arrayHough_R=new unsigned[Rho_max*Theta_max];
+	memset(arrayHough_L,0,sizeof(unsigned)* Rho_max * Theta_max);//初始化空间置0
+	memset(arrayHough_R,0,sizeof(unsigned)* Rho_max * Theta_max);
+	DWORD k,m;
+	double angle;
+	int rho;
+	unsigned Rho_max2=Rho_max-1;
+	int col_min1=0;
+	int col_max1=width;
+	int width1_t=width1;
+	int width2_t=width2;
+	int maxthe=0;   //左右车道线夹角的最大值
+	int number_L=0;  //左车道线
+	int number_R=0;  //右车道线
+	/*****************变量区****************/
+	static int theta_R_max2;
+	static int theta_R_min2;
+	static int theta_L_max2;
+	static int theta_L_min2;
+	static int rho_R_max;
+	static int rho_R_min;
+	static int rho_L_max;
+	static int rho_L_min;
+	static int theta_R_max;
+	static int theta_R_min;
+	static int theta_L_max;
+	static int theta_L_min;
+	//static int w_last[4]={0};
+	static bool line_Exiting=true;
+	static bool first_test=false;
+	static int row_node=0;
+	static int col_node;
+	static int sum_W_Min_last=0;
+	/*******************初始化部分变量区****************/
+	if (!frame_continuous)
+	{
+		theta_L_min=15;
+		theta_L_max=90;
+		theta_R_min=95;
+		theta_R_max=165;
+		rho_L_max=Rho_max;
+		rho_L_min=0;
+		rho_R_max=Rho_max;
+		rho_R_min=0;
+		col_node=col_max>>1;
+	}
+	/******************代码程序区******************/
+	for (unsigned i=row;i<height;i++)
+	{
+		uchar* pix_data=image.ptr(i);
+		if (frame_continuous)
+		{
+			col_min1=(int)(slope1*i+intercept1)-5;
+			 col_max1=(int)(slope2*i+intercept2)+5;
+			 if (col_min1<0)
+			 {
+				 col_min1=0;
+			 }
+			 if (col_max1>width)
+			 {
+				 col_max1=width;
+			 }
+			width1_t=col_min1+60;
+			width2_t=col_max1-60;
+		}
+			for (unsigned j=col_min1;j<width1_t;j++)
+			{
+				if (pix_data[j]==255)
+				{
+					for(k=1;k<Theta_max;k++)
+					{
+						rho=(int)(j*tabCos[k]+i*tabSin[k]);
+						arrayHough_L[Rho_max*k+rho]=arrayHough_L[Rho_max*k+rho]+1; //一点（i,j）代表一条直线（k,r），长度为投票值  	
+					}
+				}
+			}
+			for (unsigned j=width2_t;j<col_max1;j++)
+			{
+				if (pix_data[j]==255)
+				{
+					for(k=1;k<Theta_max;k++)
+					{
+						rho=(int)(j*tabCos[k+90]+i*tabSin[k+90]);
+						rho=rho+(Rho_max>>1);
+						if (rho>0)
+						{
+							arrayHough_R[Rho_max*k+rho]=arrayHough_R[Rho_max*k+rho]+1;
+						}
+						
+					}
+				}
+			}
+	}
+	/**************新建hough图像*****************/
+	unsigned Theta_max2=Theta_max-1;
+	MaxValue MaxValue1,MaxValue2,MaxValue3,MaxValue4;
+	MaxValue Medium_Line;
+	MaxValue1.value=0;
+	MaxValue2.value=0;
+	MaxValue3.value=0;
+	MaxValue4.value=0;
+	MaxValue1.Rho=0;
+	MaxValue1.Theta=0;
+	MaxValue2.Rho=0;
+	MaxValue2.Theta=0;
+	MaxValue3.Rho=0;
+	MaxValue3.Theta=0;
+	MaxValue4.Rho=0;
+	MaxValue4.Theta=0;
+	MaxValue MaxValue_L[10]={0};
+	MaxValue MaxValue_R[10]={0};
+	int num_line_L=10;
+	int num_line_R=10;
+	/***************第一个最大值点****************/
+	if (frame_continuous)
+	{
+		num_line_L=1;
+		num_line_R=1;
+	}
+	else 
+	{
+		num_line_L=10;
+		num_line_R=10;
+	}
+	int theta_R_min_tmp=theta_R_min;  //105
+	int theta_L_max_tmp=theta_L_max;  //75
+	for (int n=0;n<num_line_R;n++)
+	{
+		if(n>0)
+		{
+			theta_R_min_tmp=MaxValue_R[n-1].Theta+1;
+			if (theta_R_min_tmp>=theta_R_max)
+			{
+				num_line_R=n;
+				break;
+			}
+		}
+		for (int j=theta_R_min_tmp;j<theta_R_max;j++)
+			{
+				int k=j-90;
+				for (int rho1=rho_R_min;rho1<rho_R_max;rho1++)
+				{
+
+					if((int)arrayHough_R[Rho_max*k+rho1]>=MaxValue_R[n].value)
+					{
+							if (n==0)
+							{
+								MaxValue_R[0].value=(int)arrayHough_R[Rho_max*k+rho1];//选出右边最大的value值给【0】
+								MaxValue_R[0].Rho=rho1;
+								MaxValue_R[0].Theta=j;
+							}
+							else 
+								if (MaxValue_R[n].value<MaxValue_R[n-1].value)
+								{
+										MaxValue_R[n].value=(int)arrayHough_R[Rho_max*k+rho1];
+										MaxValue_R[n].Rho=rho1;
+										MaxValue_R[n].Theta=j;
+								}
+					}	
+				}
+			}
+	}
+	for (int n=0;n<num_line_L;n++)
+	{
+		if (n>0)
+		{
+			theta_L_max_tmp=MaxValue_L[n-1].Theta-3;
+			if (theta_L_max_tmp<=theta_L_min)
+			{
+				num_line_L=n;
+				break;
+			}
+		}
+		for (int j=theta_L_min;j<theta_L_max_tmp;j++)
+		{ 
+			for (int rho2=rho_L_min;rho2<rho_L_max;rho2++)
+			{
+
+				if((int)arrayHough_L[Rho_max*j+rho2]>=MaxValue_L[n].value)
+				{
+					if (!n)
+					{
+						if((rho2-row*tabSin[j])<width*tabCos[j])
+						{
+							MaxValue_L[0].value=(int)arrayHough_L[Rho_max*j+rho2];
+							MaxValue_L[0].Rho=rho2;
+							MaxValue_L[0].Theta=j;
+						}		
+					}
+					else
+						if (MaxValue_L[n].value<MaxValue_L[n-1].value)
+						{
+							if((rho2-row*tabSin[j])<width*tabCos[j])
+							{
+								MaxValue_L[n].value=(int)arrayHough_L[Rho_max*j+rho2];
+								MaxValue_L[n].Rho=rho2;
+								MaxValue_L[n].Theta=j;
+							}
+						}
+				}	
+			}
+		}
+	}
+	/*for (int i=0;i<num_line_L;i++)
+	{
+		for (int j=0;j<num_line_R;j++)
+		{
+			if(i==0&&j==0)
+			{
+				maxthe=MaxValue_R[j].Theta-MaxValue_L[i].Theta;   //两条车道线的夹角
+				number_L=0;
+				number_R=0;
+			}
+			if (MaxValue_R[j].Theta-MaxValue_L[i].Theta<maxthe)
+			{
+				maxthe=MaxValue_R[j].Theta-MaxValue_L[i].Theta; 
+				number_L=i;
+				number_R=j;
+			}
+		}
+	}*/
+/**********************对特证参数进行归一化处理并判别，以提高识别准确度**********************/
+int *sum_W=new int[num_line_R*num_line_L];
+int *sum_Value=new int[num_line_R*num_line_L];
+memset(sum_W,0,sizeof(int)*num_line_L*num_line_R);
+memset(sum_Value,0,sizeof(int)*num_line_L*num_line_R);
+int y=height>>1;
+int y_delta=height>>3;
+int w[4]={0};
+int sum_Value_Max;
+int sum_W_Min;
+int sum_W_delta=0;
+int sum_W_Max;
+int sum_Value_Min;
+float sum[2]={0};
+float B1=2,B2=0.7,B3=0.8;
+bool line_Possible;
+int sum_sum_W=0;
+int sum_sum_Value=0;
+for (int i=0;i<num_line_R;i++)
+{
+	for (int j=0;j<num_line_L;j++)
+	{
+		sum_Value[i*num_line_L+j]=MaxValue_R[i].value+MaxValue_L[j].value;
+		y=height>>1;
+		int x1,x2;
+		for (int k=0;k<4;k++)
+		{
+			x1=MaxValue_L[j].Rho/tabCos[MaxValue_L[j].Theta]-y*tabSin[MaxValue_L[j].Theta]/tabCos[MaxValue_L[j].Theta];
+			int Rho_tmp_R=MaxValue_R[i].Rho-Rho_max/2;
+			x2= Rho_tmp_R/tabCos[MaxValue_R[i].Theta]-y*tabSin[MaxValue_R[i].Theta]/tabCos[MaxValue_R[i].Theta];
+			w[k]=x2-x1;
+			if (w[k]<0)
+			{
+				line_Possible=false;
+				break;
+			}
+			else
+				line_Possible=true;
+			sum_W[i*num_line_L+j]+=w[k];
+			y=y+y_delta;
+		}
+		if (!line_Possible)
+		{
+			sum_W[i*num_line_L+j]=5120;
+			sum_Value[i*num_line_L+j]=0;
+		}
+		else if (sum_W[i*num_line_L+j]<1024)
+		{
+			sum_W[i*num_line_L+j]=5120;
+			sum_Value[i*num_line_L+j]=0;
+		}
+		if (i==0 && j==0)
+		{
+			sum_Value_Max=sum_Value[0];
+			if (sum_Value_Max==0)
+			{
+				line_Exiting=false;
+			}
+			else
+				line_Exiting=true;
+		}
+		else if(sum_Value_Max<sum_Value[i*num_line_L+j])
+		{
+			sum_Value_Max=sum_Value[i*num_line_L+j];
+			line_Exiting=true;
+		}
+		if (i==0 && j==0)
+		{
+			sum_Value_Min=sum_Value[0];
+		}
+		else if(sum_Value_Min>sum_Value[i*num_line_L+j])
+		{
+			sum_Value_Min=sum_Value[i*num_line_L+j];
+		}
+		if (i==0 && j==0)
+		{
+			sum_W_Min=sum_W[0];
+		}
+		else if(sum_W_Min>sum_W[i*num_line_L+j])
+		{
+			sum_W_Min=sum_W[i*num_line_L+j];
+		}
+		if (i==0 && j==0)
+		{
+			sum_W_Max=sum_W[0];
+		}
+		else if(sum_W_Max<sum_W[i*num_line_L+j])
+		{
+			sum_W_Max=sum_W[i*num_line_L+j];
+		}
+	}
+}
+sum_sum_W=sum_W_Min+sum_W_Max;
+sum_sum_Value=sum_Value_Max+sum_Value_Min;
+int w_j;
+int w_i;
+for (int i=0;i<num_line_R;i++)
+{
+	for (int j=0;j<num_line_L;j++)
+	{
+		if (num_line_L==1&&num_line_R==1)
+		{
+			MaxValue1=MaxValue_R[0];
+			MaxValue2=MaxValue_L[0];
+			break;
+		}
+		if (sum_W_Min_last!=0)
+		{
+			sum_W_delta=sum_W[i*num_line_L+j]-sum_W_Min_last;
+			if (sum_W_delta<0)
+			{
+				sum_W_delta=-sum_W_delta;
+			}
+		}
+		else 
+			sum_W_delta=0;
+		/************************通过比率进行量纲的消除******************/
+		float rate1=(float)sum_W[i*num_line_L+j]/sum_sum_W;
+		float rate2=(float)sum_Value[i*num_line_L+j]/sum_sum_Value;
+		float rate3=(float)sum_W_delta/(sum_W[i*num_line_L+j]+sum_W_Min_last);
+	
+		sum[1]=(rate2*B2-rate1*B1-rate3*B3)*100;
+		if (i==0 && j==0)
+		{
+			sum[0]=sum[1];
+			MaxValue1=MaxValue_R[0];
+			MaxValue2=MaxValue_L[0];
+			w_i=0;
+			w_j=0;
+		}
+		else 
+			if (sum[0]<sum[1])
+			{
+				sum[0]=sum[1];
+				MaxValue1=MaxValue_R[i];
+				MaxValue2=MaxValue_L[j];
+				w_i=i;
+				w_j=j;
+			}
+	}
+}
+if (!frame_continuous)
+{
+	sum_W_Min_last=sum_W[w_i*num_line_L+w_j];
+}
+
+delete[] sum_W;
+delete[] sum_Value;
+/**********************第二个最大值点************/
+for (int theta=-5;theta<5;theta++)
+{
+	for(int rho3=-18;rho3<18;rho3++)
+	{
+		if ((rho3+MaxValue1.Rho>=0)&&(rho3+MaxValue1.Rho<=Rho_max)&&(theta+MaxValue1.Theta<180)&&(theta+MaxValue1.Theta>90))
+		{
+			if((int)arrayHough_R[Rho_max*(theta+MaxValue1.Theta-90)+(rho3+MaxValue1.Rho)]>=MaxValue3.value)
+			{
+				if ((int)arrayHough_R[Rho_max*(theta+MaxValue1.Theta-90)+(rho3+MaxValue1.Rho)]<MaxValue1.value)
+				{
+						{
+							MaxValue3.value=(int)arrayHough_R[Rho_max*(theta+MaxValue1.Theta-90)+(rho3+MaxValue1.Rho)];
+							MaxValue3.Rho=rho3+MaxValue1.Rho;
+							MaxValue3.Theta=theta+MaxValue1.Theta;
+						}
+				}
+
+			}	
+		}
+		
+	}
+}
+	/***************第四个最大值点***************/
+	for (int theta=-5;theta<5;theta++)
+	{
+		for(int rho4=-15;rho4<15;rho4++)
+		{
+			if ((rho4+MaxValue2.Rho>=0)&&(rho4+MaxValue2.Rho<=Rho_max)&&(theta+MaxValue2.Theta<Theta_max))
+			{
+				if((int)arrayHough_L[Rho_max*(theta+MaxValue2.Theta)+(rho4+MaxValue2.Rho)]>=MaxValue4.value)
+				{
+					if ((int)arrayHough_L[Rho_max*(theta+MaxValue2.Theta)+(rho4+MaxValue2.Rho)]<MaxValue2.value)
+					
+					{
+						
+						if((rho4+MaxValue2.Rho-row*sin((theta+MaxValue2.Theta)*PI/180))<width*cos((theta+MaxValue2.Theta)*PI/180))
+							{
+								MaxValue4.value=(int)arrayHough_L[Rho_max*(theta+MaxValue2.Theta)+(rho4+MaxValue2.Rho)];
+								MaxValue4.Rho=rho4+MaxValue2.Rho;
+								MaxValue4.Theta=theta+MaxValue2.Theta;
+							}
+					}
+
+				}	
+			}
+		
+		}
+	}
+/**************中线打印****************/
+MaxValue MaxValue1_median,MaxValue2_median;
+int Rho_tmp;
+MaxValue1_median.value=MaxValue1.value;//右
+MaxValue1_median.Theta=MaxValue1.Theta;
+MaxValue1_median.Rho=MaxValue1.Rho;
+MaxValue2_median.value=MaxValue2.value;//左
+MaxValue2_median.Theta=MaxValue2.Theta;
+MaxValue2_median.Rho=MaxValue2.Rho;
+//cout<<"MaxValue1_median.value="<<MaxValue1_median.value<<endl<<"MaxValue2_median="<<MaxValue2_median.value<<endl;
+if (MaxValue1_median.Theta>theta_R_max2||MaxValue1_median.Theta<theta_R_min2||MaxValue2_median.Theta>theta_L_max2||MaxValue2_median.Theta<theta_L_min2)
+{
+		frame_continuous=false;
+		frame_num=0;
+} 
+if (MaxValue1_median.value<=15 || MaxValue2_median.value<15)
+{
+		frame_continuous=false;
+		frame_num=0;
+}
+if (!frame_continuous)
+{
+	if ((MaxValue1.value>35||MaxValue3.value>35)&&(MaxValue2.value>35||MaxValue4.value>35))
+	{
+		frame_num++;
+		if(frame_num>=5)
+			{
+				frame_num=0;
+				frame_continuous=true;
+			}
+	}
+	else 
+	{
+		frame_num=0;
+		frame_continuous=false;
+	}
+}
+	Rho_tmp=MaxValue1_median.Rho-Rho_max/2;
+	row_node=(int)((Rho_tmp*tabCos[MaxValue2_median.Theta]-MaxValue2_median.Rho*tabCos[MaxValue1_median.Theta])/tabSin[MaxValue1_median.Theta-MaxValue2_median.Theta]);
+	col_node=(MaxValue2_median.Rho-row_node*tabSin[MaxValue2_median.Theta])/tabCos[MaxValue2_median.Theta];
+	col_min=(MaxValue2_median.Rho-height*tabSin[MaxValue2_median.Theta])/tabCos[MaxValue2_median.Theta];
+	col_max=(Rho_tmp-height*tabSin[MaxValue1_median.Theta])/tabCos[MaxValue1_median.Theta];
+	/************************斜率与截距******************/
+	slope1=float(col_min-col_node)/(height-row_node);//含有row_node.斜率有可能有误
+	intercept1=float(col_node-20-row_node*slope1);
+	slope2=float(col_max-col_node)/(height-row_node);
+	intercept2=float(col_node+20-row_node*slope2);
+	if(col_min<0)
+		col_min=0;
+	if(col_max>width)
+		col_max=width;	
+		theta_L_min=MaxValue2_median.Theta-5;
+		theta_L_max=MaxValue2_median.Theta+5;
+		theta_R_min=MaxValue1_median.Theta-5;
+		theta_R_max=MaxValue1_median.Theta+5;
+		theta_L_min2=MaxValue2_median.Theta-3;
+		theta_L_max2=MaxValue2_median.Theta+3;
+		theta_R_min2=MaxValue1_median.Theta-3;
+		theta_R_max2=MaxValue1_median.Theta+3;
+		rho_L_min=MaxValue2_median.Rho-10;
+		rho_L_max=MaxValue2_median.Rho+10;
+		rho_R_min=MaxValue1_median.Rho-10;
+		rho_R_max=MaxValue1_median.Rho+10;
+	//cout<<"frame_continuous="<<frame_continuous<<endl;
+
+	if (row_node>200)
+	{
+		if (row_node<=3*height/4)
+		{
+			row=row_node;
+		}
+		else 
+			row=240;
+	}
+int row_tmp=row_node;
+	if (row_tmp<=0)
+	{
+		row_tmp=0;
+	}
+	static int num_YawAngle = 15;
+	if (line_Exiting)
+	{
+
+		Medium_Line.Rho = (MaxValue1_median.Rho+MaxValue2_median.Rho)>>1;
+		Medium_Line.Theta = (MaxValue1_median.Theta+MaxValue2_median.Theta)>>1;
+		print_line(outimage,MaxValue1_median,row_tmp,col_node,col_max,tabSin,tabCos);
+		print_line2(outimage,MaxValue2_median,row_tmp,col_min,col_node,tabSin,tabCos);
+		printf("Medium_Line.Theta = %d",Medium_Line.Theta);
+		if(Medium_Line.Theta > 98)
+		{
+			num_YawAngle++;
+			if(Medium_Line.Theta > 106 || num_YawAngle >25)
+			{
+				drawArrowRight(outimage);
+				num_YawAngle = 15;
+			}
+				
+		}
+		else if(Medium_Line.Theta < 82)
+		{
+			num_YawAngle--;
+			if(Medium_Line.Theta < 74 || num_YawAngle < 5)
+			{
+				drawArrowLeft(outimage);
+				num_YawAngle = 15;
+			}
+			
+		}
+		
+	
+		/*if(Medium_Line.Theta>90)
+			print_line_medium_right(outimage,Medium_Line,row_tmp,col_node,col_max,tabSin,tabCos);
+		else
+			print_line_medium_left(outimage,Medium_Line,row_tmp,col_min,col_node,tabSin,tabCos);*/
+	}
+	
+
+
+	delete[] arrayHough_L;
+	delete[] arrayHough_R;
+}
+void drawArrowLeft(Mat &img)
+{
+	Point pStart;
+	Point pEnd;
+	Point Arrow;
+	Scalar lineColor(0,255,255);
+
+	
+		pStart.x = 120;
+		pStart.y = 98;
+		pEnd.x = 120;
+		pEnd.y = 68;
+		line(img,pStart,pEnd,lineColor,3,CV_AA);
+		
+		pStart.x = 120;
+		pStart.y = 68;
+		pEnd.x = 60;
+		pEnd.y = 68;
+		line(img,pStart,pEnd,lineColor,3,CV_AA);
+		
+		pStart.x = 60;
+		pStart.y = 68;
+		pEnd.x = 60;
+		pEnd.y = 53;
+		line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+		pStart.x = 60;
+		pStart.y = 53;
+		pEnd.x = 40;
+		pEnd.y =83;
+		line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+		pStart.x = 40;
+		pStart.y = 83;
+		pEnd.x = 60;
+		pEnd.y =113;
+		line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+		pStart.x = 60;
+		pStart.y = 113;
+		pEnd.x = 60;
+		pEnd.y =98;
+		line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+		pStart.x = 60;
+		pStart.y = 98;
+		pEnd.x = 120;
+		pEnd.y =98;
+		line(img,pStart,pEnd,lineColor,3,CV_AA);
+}
+
+
+void drawArrowRight(Mat &img)
+{
+	Point pStart;
+	Point pEnd;
+	Point Arrow;
+	Scalar lineColor(0,255,255);
+
+//x = 600, y = 68
+	pStart.x = 600;
+	pStart.y = 98;
+	pEnd.x = 600;
+	pEnd.y = 68;
+	line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+	pStart.x = 600;
+	pStart.y = 68;
+	pEnd.x = 660;
+	pEnd.y = 68;
+	line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+	pStart.x = 660;
+	pStart.y = 68;
+	pEnd.x = 660;
+	pEnd.y = 53;
+	line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+	pStart.x = 660;
+	pStart.y = 53;
+	pEnd.x = 680;
+	pEnd.y =83;
+	line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+	pStart.x = 680;
+	pStart.y = 83;
+	pEnd.x = 660;
+	pEnd.y =113;
+	line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+	pStart.x = 660;
+	pStart.y = 113;
+	pEnd.x = 660;
+	pEnd.y =98;
+	line(img,pStart,pEnd,lineColor,3,CV_AA);
+
+	pStart.x = 660;
+	pStart.y = 98;
+	pEnd.x = 600;
+	pEnd.y =98;
+	line(img,pStart,pEnd,lineColor,3,CV_AA);
+}
+
+
+/*********分割线***************************************/
+
+void print_line(Mat &image,MaxValue &max_value,int row,int col_node,int col_max,float *tabSin,float *tabCos)
+{
+	int width=image.cols;
+	int height=image.rows;
+	double length=width*width+height*height;//hough 图像宽：距离rho的量化级数
+	unsigned Rho_max=unsigned(sqrt(length));
+	int Rho_tmp=max_value.Rho-Rho_max/2;
+	if(max_value.Theta>90)
+	{
+		if (Rho_tmp<row*tabSin[max_value.Theta])
+		{
+				for (int i=row;i<height;i++)
+				{
+					uchar *pix_data=image.ptr(i);
+					int j=(int)(Rho_tmp-i*tabSin[max_value.Theta])/tabCos[max_value.Theta];
+					int currentCol = 3*j;
+					if (j>(width-2))
+					{
+						break;
+					}
+					else
+					{	
+						pix_data[currentCol-1]=0;
+						pix_data[currentCol-2]=0;
+						pix_data[currentCol-3]=255;
+						
+						pix_data[currentCol+2]=0;
+						pix_data[currentCol+1]=0;
+						pix_data[currentCol]=255;
+						
+						pix_data[currentCol+5]=0;
+						pix_data[currentCol+4]=0;
+						pix_data[currentCol+3]=255;
+					}
+				}
+			}
+	}
+}
+void print_line2(Mat &image,MaxValue &max_value,int row,int col_min,int col_node,float *tabSin,float *tabCos)
+{
+	int width=image.cols;
+	int height=image.rows;
+	if((max_value.Theta*PI/180)<PI/2)
+		for (int i=row;i<height;i++)
+		{
+			uchar *pix_data=image.ptr(i);
+			int j=(int)(max_value.Rho-i*tabSin[max_value.Theta])/tabCos[max_value.Theta];
+			int currentCol = 3*j;	
+			if (j<=0)
+				{
+					break;
+				}
+				else
+				{	
+					pix_data[currentCol-1]=255;
+					pix_data[currentCol-2]=0;
+					pix_data[currentCol-3]=0;
+					
+					pix_data[currentCol+2]=255;
+					pix_data[currentCol+1]=0;
+					pix_data[currentCol]=0;
+					
+					pix_data[currentCol+5]=255;
+					pix_data[currentCol+4]=0;
+					pix_data[currentCol+3]=0;
+					
+				}
+		}
+}
+
+void EdgeDetction(Mat &image, Mat &EdgeImage, int row, bool frame_continuous, float slope1, float intercept1, float slope2, float intercept2)
+{
+	EdgeImage.create(image.size(),image.type());
+	int width = EdgeImage.cols-1;
+	int height = EdgeImage.rows-1;
+	float gradient, sx, sy;
+	int width1_c = width>>1;
+	int width2_c = width>>1;
+	int col_min = 0;
+	int col_max = width;
+	int num_gradient = 0;
+	for(int i = row; i < height;i++)
+	{
+		uchar *EdgeImage_pt = EdgeImage.ptr(i);
+		EdgeImage_pt[0] = 0;
+		EdgeImage_pt[width-1] = 0;
+	}
+	for(int column = col_min; column < col_max; column++)
+	{
+		uchar *EdgeImage_pt1 = EdgeImage.ptr(0);
+		uchar *EdgeImage_pt2 = EdgeImage.ptr(height-1);
+		EdgeImage_pt1[column] = 0;
+		EdgeImage_pt2[column] = 0;
+	}
+	int nl = height-1;
+	int nc = width-1;
+	for (int j = row+1;j<nl;j++)
+	{
+		uchar* data2 = image.ptr(j);
+		uchar* data1 = image.ptr(j-1);
+		uchar* data3 = image.ptr(j+1);
+		uchar* data_Edge = EdgeImage.ptr(j);
+		if (frame_continuous)
+		{
+			col_min = (int)(slope1*j+intercept1)-20;
+			col_max = (int)(slope2*j+intercept2)+20;
+			if (col_min<0)
+			{
+				col_min = 0;
+			}
+			if (col_max > width)
+			{ 
+				col_max = width;
+			}
+			width1_c = col_min+80;
+			width2_c = col_max-80;
+	}
+			for (int i = col_min;i<width1_c;i++)
+			{
+
+				sx = (data1[i+1]+2*data2[i+1]+data3[i+1]-data1[i-1]-2*data2[i-1]-data3[i-1]);
+				sy = (2*data1[i]+data1[i-1]+data1[i+1]-data3[i-1]-2*data3[i]-data3[i+1]);
+				if (sx<0)
+				{
+					sx = 0-sx;
+				}
+				if(sy<0)
+				{
+					sy = 0-sy;
+				}
+				gradient = sx+sy;
+				if (gradient > 255)
+				{
+					gradient = 255;
+				}
+				data_Edge[i] = gradient;
+
+			}
+			for (int i = width2_c;i<col_max;i++)
+			{
+				num_gradient++;
+				sx = (data1[i+1]+2*data2[i+1]+data3[i+1]-data1[i-1]-2*data2[i-1]-data3[i-1]);
+				sy = (2*data1[i]+data1[i-1]+data1[i+1]-data3[i-1]-2*data3[i]-data3[i+1]);
+				if (sx < 0)
+				{
+					sx = 0-sx;
+				}
+				if(sy < 0)
+				{
+					sy = 0 - sy;
+				}
+				gradient = sx + sy;
+				if (gradient > 255)
+				{
+					gradient = 255;
+				}
+				data_Edge[i] = gradient; //梯度
+			}
+		
+	}
+}
+
+void RGB2Gray1(Mat &image, Mat &GrayImage,int row)
+{
+	
+	GrayImage.create(image.size(), CV_8UC1);
+	int nl = image.rows;
+	int col_min = 0;
+	int col_max = image.cols;
+	int tmp;
+	for (int j = 0;j < nl;j++)
+	{
+		uchar* data_gray = GrayImage.ptr<uchar>(j);
+		uchar* data = image.ptr<uchar>(j);
+		for (int i = col_min;i < col_max;i++)
+		{
+			int currentCol = 3*i;
+			if(j < row)
+			data_gray[i] = 0;
+			else
+			data_gray[i] = data[currentCol]*0.1140+data[currentCol+1]*0.5870+data[currentCol+2]*0.2989;//bgr to gray
+		}
+	}
+ }
